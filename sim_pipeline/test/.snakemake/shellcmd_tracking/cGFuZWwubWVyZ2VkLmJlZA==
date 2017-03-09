@@ -1,1 +1,0 @@
-bedtools merge -i panel.sorted.bed > panel.merged.bed

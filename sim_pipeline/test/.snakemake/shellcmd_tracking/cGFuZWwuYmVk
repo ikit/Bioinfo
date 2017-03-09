@@ -1,1 +1,0 @@
-zcat /bioinfo/data/annotation/refGene.txt.gz |grep -E "SPINK1|GJB2|CRTC|BIRC6"|awk 'BEGIN{OFS="	"}{print $3,$5,$6}' > panel.bed
