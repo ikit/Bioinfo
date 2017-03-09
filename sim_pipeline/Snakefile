@@ -1,3 +1,5 @@
+import re
+
 configfile : "config.yml"
 workdir: config["workdir"]
 
@@ -6,8 +8,8 @@ workdir: config["workdir"]
 
 rule all:
     input:
-        r1 = ["sample{}_R1.fastq".format(i) for i in range(config["samples_count"])],
-        r2 = ["sample{}_R1.fastq".format(i) for i in range(config["samples_count"])]
+        r1 = ["sample{}_R1.fastq".format(i) for i in range(int(config["samples_count"]))],
+        r2 = ["sample{}_R2.fastq".format(i) for i in range(int(config["samples_count"]))]
 
 
 rule rename:
@@ -50,11 +52,12 @@ rule merging_bed:
 
 rule bed_to_fasta:
     input:
-        "{filename}.merged.bed"
+        bed = "{filename}.merged.bed",
+        ref = "ref.muted.fa"
     output:
         "{filename}.fa"
     shell:
-        "bedtools getfasta -fi {config[ref]} -bed {input} -fo {output}"
+        "bedtools getfasta -fi {input.ref} -bed {input.bed} -fo {output}"
 
 
 rule generate_panel_sample_fa:
@@ -65,6 +68,30 @@ rule generate_panel_sample_fa:
         "{sample}_R2.fq"
     shell:
         "art_illumina -ss HS25 -sam -i {input} -p -l 150 -f 100 -m 200 -s 10 -o {wildcards.sample}_R"
+
+
+rule create_mutation_file:
+    output:
+        "mutation.snp"
+    run:
+        with open(output[0],"w") as file:
+            for snp in config["snp"]:
+                m = re.search(r'(.+):g.(\d+).+>(.)', snp)
+                chrom = m.group(1)
+                pos   = m.group(2)
+                alt   = m.group(3)
+                file.write("\t".join([chrom,pos,alt,"\n"]))
+                
+
+
+rule mute_ref:
+    input:
+        ref = config["ref"],
+        snp = "mutation.snp"
+    output:
+        "ref.muted.fa"
+    shell:
+        "seqtk mutfa {input.ref} {input.snp} > {output}"
 
 
 

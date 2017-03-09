@@ -4,10 +4,13 @@ refgen_path: "/bioinfo/data/annotation/refGene.txt.gz"
 workdir: "test"
 samples_count: 50
 sample_prefix: "sample_"
+read_length: 150
+insert_length: 200
+depth: 100 
+insert_sd : 50
 panel:
-  - SPINK1
   - GJB2
-  - CRTC
-  - BIRC6
-
+snp:
+  - chr13:g.20763113C>T
+  - chr13:g.20188984C>T 
 
