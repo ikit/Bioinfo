@@ -56,7 +56,8 @@ rule qcreport:
 
 
 
-
+#TODO : il faut gérer plus proprement les header du sam généré,
+#       gatk est très fragile avec ça. ID doit être égale à bwa, tous doivent être renseignés
 rule alignment:
     input:
         fwd = "{sample}_R1.fastq",
@@ -67,7 +68,7 @@ rule alignment:
     log:
         "{sample}.bwa.log"
     shell:
-        "bwa mem -R '@RG\tID:bwa\tSM:{wildcards.sample}\tLB:library1' -t {threads} {config[ref]} {input.fwd} {input.rev} > {output}  2> {log}"
+        "bwa mem -R '@RG\tID:bwa\tSM:{wildcards.sample}\tLB:library1\tPL:ILLUMINA' -t {threads} {config[ref]} {input.fwd} {input.rev} > {output}  2> {log}"
 
 
 
@@ -85,16 +86,16 @@ rule sorting_sam:
         "samtools sort {input} --threads {threads} -o {output}"
 
 
-# rule mark_duplicate:
-#   input:
-#       "{sample}.sorted.sam"
-#   output:
-#       "{sample}.markDuplicate.sam",
-#       "{sample}.markDuplicate.metrics"
-#   log:
-#       "{sample}.markDuplicate.log"
-#   shell:
-#       "picard-tools MarkDuplicatesWithMateCigar INPUT={input} OUTPUT={output[0]} M={output[1]} 2> {log}"
+rule mark_duplicate:
+  input:
+      "{sample}.sorted.sam"
+  output:
+      "{sample}.markDuplicate.sam",
+      "{sample}.markDuplicate.metrics"
+  log:
+      "{sample}.markDuplicate.log"
+  shell:
+      "picard-tools MarkDuplicatesWithMateCigar INPUT={input} OUTPUT={output[0]} M={output[1]} 2> {log}"
 
 
 rule sam_to_bam:
@@ -120,26 +121,21 @@ rule index_bam:
 
 
 
+# TODO : add 1000G, dbSNP, ...
 rule bam_RealignerTargetCreator:
-    message: 
-        "Emits intervals for the Local Indel Realigner to target for realignment.\n"
-        "   inputs  : {input}\n"
-        "   outputs : {output}"
     input:
         "{sample}.sorted.bam",
         "{sample}.sorted.bam.bai"
     output:
         "{sample}.indel.intervals"
+    threads:
+        128
     shell:
-        "java -Xms30G -Xmx30G -jar /PROGS/EXTERN/GATK/GenomeAnalysisTK-3.3-0/GenomeAnalysisTK.jar -T RealignerTargetCreator -R  {config[ref]} -I {input[0]} -o {output}"
+        "gatk -Xms20G -Xmx20G -T RealignerTargetCreator -R -nt {threads} {config[ref]} -I {input[0]} -o {output}"
 
 
-
+# TODO : add 1000G, dbSNP, ...
 rule bam_IndelRealigner:
-    message: 
-        "Performs local realignment of reads to correct misalignments due to the presence of indels.\n"
-        "   inputs  : {input}\n"
-        "   outputs : {output}"
     input:
         bam = "{sample}.sorted.bam",
         bai = "{sample}.sorted.bam.bai",
@@ -147,14 +143,58 @@ rule bam_IndelRealigner:
     output:
         "{sample}.realigned.bam"
     shell:
-        "java -Xms30G -Xmx30G -jar /PROGS/EXTERN/GATK/GenomeAnalysisTK-3.3-0/GenomeAnalysisTK.jar -T IndelRealigner -R  {config[ref]} -I {input.bam} -targetIntervals {input.itv} -o {output}"
+        "gatk -Xms20G -Xmx20G -T IndelRealigner -R {config[ref]} -I {input.bam} -targetIntervals {input.itv} -o {output}"
+
+
+rule bam_BaseRecalibrator:
+    input:
+        "{filename}.bam"
+    output:
+        "{filename}.table"
+    threads:
+        128
+    shell:
+        "gatk -Xms20G -Xmx20G -T BaseRecalibrator -R {config[ref]} -nct {threads} -knownSites {config[dbsnp]} -I {input} -o {output}"
+
+
+
+rule bam_PrintRead:
+    input:
+        bam = "{filename}.bam",
+        tbl = "{filename}.table"
+    output:
+        "{filename}.recal.bam"
+    threads:
+        128
+    shell:
+        "gatk -Xms20G -Xmx20G -T PrintReads -R {config[ref]} -nct {threads} -I {input.bam} --BQSR {input.tbl} -o {output}"
+
+
+
+# TODO :
+#  - Mark duplicate
+#  - second pass to analyze covariation remaining after recalibration
+#  - Generating before/after recalibration plot : https://software.broadinstitute.org/gatk/documentation/article?id=2801
 
 
 
 
 
-# rule 
-# picard-tools CreateSequenceDictionary REFERENCE=hg38.small.fa OUTPUT=hg38.small.dict
+
+
+
+
+rule fasta_dict_creation:
+    input:
+        "{reference}.fa"
+    output:
+        "{reference}.dict"
+    shell:
+        "picard CreateSequenceDictionary REFERENCE={input} OUTPUT={output}"
+
+
+
+
 
 
 
@@ -164,16 +204,31 @@ rule bam_IndelRealigner:
 # ----------------------------------------------------
 
 
-rule variant_calling:
+rule variant_calling_mpileup:
     input:
         bam = "{sample}.sorted.bam",
         bai = "{sample}.sorted.bam.bai"
     output:
-        "{sample}.vcf"
+        "{sample}.mpileup.vcf"
     log:
-        "{sample}.vcf.log"
+        "{sample}.mpileup.vcf.log"
     shell:
         "samtools mpileup -ugf {config[ref]} {input.bam} | bcftools call -vm -O v -o {output}  2> {log}"
+
+
+rule variant_calling_HC:
+    input:
+        bam = "{sample}.realigned.recal.bam",
+        bai = "{sample}.realigned.recal.bam.bai"
+    output:
+        "{sample}.hc.vcf"
+    log:
+        "{sample}.hc.vcf.log"
+    threads:
+        128
+    shell:
+        "gatk -Xms20G -Xmx20G -T HaplotypeCaller -R {config[ref]} -nct {threads} -I {input.bam} -o {output} -ERC GVCF --variant_index_type LINEAR --variant_index_parameter 128000  "
+
 
 
 # rule vcf_index:

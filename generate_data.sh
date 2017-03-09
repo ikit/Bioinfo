@@ -27,3 +27,7 @@ bedtools getfasta  -fi $REF_PATH -bed final.bed -fo panel.fa
 
 
 art_illumina -ss HSXt -amp -p -sam -na -i panel.fa -l 150 -f 100 -o amplicon_pair_dat
+
+
+
+
