@@ -52,6 +52,8 @@ conda install snpeff
 conda install pullseq
 conda install bedtools
 conda install picard
+conda install bcftools
+conda install seqtk             # Adding mutation in fasta file
 
 
 

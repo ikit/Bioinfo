@@ -1,0 +1,7 @@
+---
+ref: "/bioinfo/data/reference/hg19.clean.fa"
+snpEff_ref : "GRCh37.75"
+workdir: "test"
+samples:
+  - ASmall
+  - BSmall

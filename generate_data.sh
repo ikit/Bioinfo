@@ -15,9 +15,10 @@ wget http://hgdownload.cse.ucsc.edu/goldenpath/hg19/database/refGene.txt.gz
 # Generate Panel
 GENES="SPINK1|GJB2|CRTC|BIRC6"
 REF_PATH="/bioinfo/data/reference/hg19.clean.fa"
+REF_ANN="/bioinfo/data/annotation/refGene.txt.gz"
 
 # Create bed file with gene region
-zcat refGene.txt.gz |grep -E "$GENES"|awk 'BEGIN{OFS="\t"}{print $3,$5,$6}' > panel.bed
+zcat $REF_ANN |grep -E "$GENES"|awk 'BEGIN{OFS="\t"}{print $3,$5,$6}' > panel.bed
 # Mergin region that overlap (because of several transcript by gene)
 bedtools sort -i panel.bed  > panel.sort.bed
 bedtools merge -i panel.sort.bed  > final.bed

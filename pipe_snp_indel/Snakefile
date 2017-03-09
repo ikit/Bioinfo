@@ -1,10 +1,45 @@
-configfile : "config.yaml"
+configfile : "config.yml"
 workdir: config["workdir"]
 
 
-rule all:
+
+
+
+
+# ----------------------------------------------------
+# Common
+# ----------------------------------------------------
+
+
+rule unzip:
     input:
-        "PAN150427.vcf.gz","PKD160706.vcf.gz"
+        "{filename}.gz"
+    output:
+        "{filename}"
+    shell:
+        "gzip -d {input}"
+
+
+# rule bgzip:
+#     input:
+#         "{filename}.vcf"
+#     output:
+#         "{filename}.vcf.gz"
+#     shell:
+#         "bgzip {input}"
+
+
+rule fq_to_fastq:
+    input:
+        "{filename}.fq"
+    output:
+        "{filename}.fastq"
+    shell:
+        "mv {input} {output}"
+
+# ----------------------------------------------------
+# Alignment
+# ----------------------------------------------------
 
 
 rule qcreport:
@@ -20,14 +55,6 @@ rule qcreport:
 
 
 
-rule unzip:
-    input:
-        "{filename}.gz"
-    output:
-        "{filename}"
-    shell:
-        "gzip -d {input}"
-
 
 
 rule alignment:
@@ -40,7 +67,7 @@ rule alignment:
     log:
         "{sample}.bwa.log"
     shell:
-        "bwa mem -R '@RG\tID:mygroup\tSM:{wildcards.sample}\tLB:library1' -t {threads} {config[ref]} {input.fwd} {input.rev} > {output}  2> {log}"
+        "bwa mem -R '@RG\tID:bwa\tSM:{wildcards.sample}\tLB:library1' -t {threads} {config[ref]} {input.fwd} {input.rev} > {output}  2> {log}"
 
 
 
@@ -58,7 +85,6 @@ rule sorting_sam:
         "samtools sort {input} --threads {threads} -o {output}"
 
 
-
 # rule mark_duplicate:
 #   input:
 #       "{sample}.sorted.sam"
@@ -71,8 +97,6 @@ rule sorting_sam:
 #       "picard-tools MarkDuplicatesWithMateCigar INPUT={input} OUTPUT={output[0]} M={output[1]} 2> {log}"
 
 
-
-#Rule sam to bam 
 rule sam_to_bam:
     input:
         "{filename}.sam"
@@ -82,8 +106,11 @@ rule sam_to_bam:
         "samtools view  -Sbh {input} > {output.bam}"
 
 
-
 rule index_bam:
+    message: 
+        "Create index for bam.\n"
+        "   inputs  : {input}\n"
+        "   outputs : {output}"
     input:
         "{filename}.bam"
     output:
@@ -93,24 +120,88 @@ rule index_bam:
 
 
 
+rule bam_RealignerTargetCreator:
+    message: 
+        "Emits intervals for the Local Indel Realigner to target for realignment.\n"
+        "   inputs  : {input}\n"
+        "   outputs : {output}"
+    input:
+        "{sample}.sorted.bam",
+        "{sample}.sorted.bam.bai"
+    output:
+        "{sample}.indel.intervals"
+    shell:
+        "java -Xms30G -Xmx30G -jar /PROGS/EXTERN/GATK/GenomeAnalysisTK-3.3-0/GenomeAnalysisTK.jar -T RealignerTargetCreator -R  {config[ref]} -I {input[0]} -o {output}"
+
+
+
+rule bam_IndelRealigner:
+    message: 
+        "Performs local realignment of reads to correct misalignments due to the presence of indels.\n"
+        "   inputs  : {input}\n"
+        "   outputs : {output}"
+    input:
+        bam = "{sample}.sorted.bam",
+        bai = "{sample}.sorted.bam.bai",
+        itv = "{sample}.indel.intervals"
+    output:
+        "{sample}.realigned.bam"
+    shell:
+        "java -Xms30G -Xmx30G -jar /PROGS/EXTERN/GATK/GenomeAnalysisTK-3.3-0/GenomeAnalysisTK.jar -T IndelRealigner -R  {config[ref]} -I {input.bam} -targetIntervals {input.itv} -o {output}"
+
+
+
+
+
+# rule 
+# picard-tools CreateSequenceDictionary REFERENCE=hg38.small.fa OUTPUT=hg38.small.dict
+
+
+
+
+# ----------------------------------------------------
+# Variant Calling
+# ----------------------------------------------------
+
+
 rule variant_calling:
     input:
         bam = "{sample}.sorted.bam",
         bai = "{sample}.sorted.bam.bai"
     output:
-        "{sample}.vcf.gz"
+        "{sample}.vcf"
     log:
         "{sample}.vcf.log"
     shell:
-        "samtools mpileup -ugf {config[ref]} {input.bam} | bcftools call -vmO z -o {output}  2> {log}"
+        "samtools mpileup -ugf {config[ref]} {input.bam} | bcftools call -vm -O v -o {output}  2> {log}"
 
+
+# rule vcf_index:
+#     input:
+#         "{sample}.vcf.gz"
+#     output:
+#         "{sample}.vcf.gz.tbi"
+#     shell:
+#         "tabix -p vcf {input}"
+
+
+
+
+
+
+
+
+
+# ----------------------------------------------------
+# Annotations
+# ----------------------------------------------------
 
 
 rule annotation_snpeff:
     input:
-        vcf = "{sample}.vcf.gz"
+        "{sample}.vcf"
     output:
-        "{sample}.snpeff.vcf.gz"
+        "{sample}.snpeff.vcf"
     log:
         "{sample}.snpeff.log"
     shell:
