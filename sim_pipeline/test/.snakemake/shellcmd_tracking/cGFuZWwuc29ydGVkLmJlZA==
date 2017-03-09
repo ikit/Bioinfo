@@ -1,0 +1,1 @@
+bedtools sort -i panel.bed > panel.sorted.bed

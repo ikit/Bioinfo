@@ -1,0 +1,72 @@
+configfile : "config.yml"
+workdir: config["workdir"]
+
+
+
+
+rule all:
+    input:
+        r1 = ["sample{}_R1.fastq".format(i) for i in range(config["samples_count"])],
+        r2 = ["sample{}_R1.fastq".format(i) for i in range(config["samples_count"])]
+
+
+rule rename:
+    input:
+        "{sample}.fq"
+    output:
+        "{sample}.fastq"
+    shell:
+        "mv {input} {output}"
+
+
+
+# ----------------------------------------------------
+# Common
+# ----------------------------------------------------
+
+rule create_gene_bed:
+    output:
+        "panel.bed"
+    params:
+        genes = "|".join([i for i in config['panel']])
+    shell:
+        "zcat {config[refgen_path]} |grep -E \"{params.genes}\"|awk 'BEGIN{{OFS=\"\t\"}}{{print $3,$5,$6}}' > panel.bed"
+
+rule sort_bed:
+    input:
+        "{filename}.bed"
+    output:
+        "{filename}.sorted.bed"
+    shell:
+        "bedtools sort -i {input} > {output}"
+
+rule merging_bed:
+    input:
+        "{filename}.sorted.bed"
+    output:
+        "{filename}.merged.bed"
+    shell:
+        "bedtools merge -i {input} > {output}"
+
+rule bed_to_fasta:
+    input:
+        "{filename}.merged.bed"
+    output:
+        "{filename}.fa"
+    shell:
+        "bedtools getfasta -fi {config[ref]} -bed {input} -fo {output}"
+
+
+rule generate_panel_sample_fa:
+    input:
+        pnl = "panel.fa"
+    output:
+        "{sample}_R1.fq",
+        "{sample}_R2.fq"
+    shell:
+        "art_illumina -ss HS25 -sam -i {input} -p -l 150 -f 100 -m 200 -s 10 -o {wildcards.sample}_R"
+
+
+
+
+

@@ -1,0 +1,13 @@
+---
+ref: "/bioinfo/data/reference/hg19.clean.fa"
+refgen_path: "/bioinfo/data/annotation/refGene.txt.gz"
+workdir: "test"
+samples_count: 50
+sample_prefix: "sample_"
+panel:
+  - SPINK1
+  - GJB2
+  - CRTC
+  - BIRC6
+
+

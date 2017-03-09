@@ -1,0 +1,1 @@
+bedtools getfasta -fi /bioinfo/data/reference/hg19.clean.fa -bed panel.merged.bed -fo panel.fa
