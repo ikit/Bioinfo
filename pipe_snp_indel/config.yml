@@ -1,5 +1,15 @@
 ---
 ref: "/bioinfo/data/reference/hg19.clean.fa"
 snpEff_ref : "GRCh37.75"
-dbsnp: "/bioinfo/data/annotation/dbsnp146.GRCh37.vcf.gz"
+dbsnp: "/bioinfo/data/gatk_bundle_hg19/dbsnp_138.hg19.vcf.gz"
+omni: "/bioinfo/data/gatk_bundle_hg19/1000G_omni2.5.hg19.sites.vcf.gz"
+mills: "/bioinfo/data/gatk_bundle_hg19/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf.gz"
+hapmap: "/bioinfo/data/gatk_bundle_hg19/hapmap_3.3.hg19.sites.vcf.gz"
+_1000g: "/bioinfo/data/gatk_bundle_hg19/1000G_phase1.snps.high_confidence.hg19.sites.vcf.gz"
+gnomad: "/bioinfo/data/reference/gnomad.exomes.r2.0.1.sites.vcf.gz"
 workdir: "test"
+ram: "20"  # in Giga
+samples:
+    - "s1"
+    - "s2"
+    - "s3"

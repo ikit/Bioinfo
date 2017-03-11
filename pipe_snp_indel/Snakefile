@@ -1,23 +1,28 @@
+import glob, os
+
+
 configfile : "config.yml"
 workdir: config["workdir"]
 
 
 
 
-
+rule clean:
+    shell:
+        "rm -f sim.*"
 
 # ----------------------------------------------------
 # Common
 # ----------------------------------------------------
 
 
-rule unzip:
-    input:
-        "{filename}.gz"
-    output:
-        "{filename}"
-    shell:
-        "gzip -d {input}"
+# rule unzip:
+#     input:
+#         "{filename}.gz"
+#     output:
+#         "{filename}"
+#     shell:
+#         "gzip -d {input}"
 
 
 # rule bgzip:
@@ -28,6 +33,13 @@ rule unzip:
 #     shell:
 #         "bgzip {input}"
 
+# rule vcf_index:
+#     input:
+#         "{filename}.vcf.gz"
+#     output:
+#         "{filename}.vcf.gz.tbi"
+#     shell:
+#         "tabix -p vcf {input}"
 
 rule fq_to_fastq:
     input:
@@ -82,7 +94,7 @@ rule sorting_sam:
     log:
         "{sample}.sorted.log"
     shell:
-        #"picard-tools SortSam INPUT={input} OUTPUT={output} SORT_ORDER=coordinate 2> {log}"
+        #"picard SortSam INPUT={input} OUTPUT={output} SORT_ORDER=coordinate 2> {log}"
         "samtools sort {input} --threads {threads} -o {output}"
 
 
@@ -95,7 +107,7 @@ rule mark_duplicate:
   log:
       "{sample}.markDuplicate.log"
   shell:
-      "picard-tools MarkDuplicatesWithMateCigar INPUT={input} OUTPUT={output[0]} M={output[1]} 2> {log}"
+      "picard MarkDuplicatesWithMateCigar INPUT={input} OUTPUT={output[0]} M={output[1]} 2> {log}"
 
 
 rule sam_to_bam:
@@ -108,10 +120,6 @@ rule sam_to_bam:
 
 
 rule index_bam:
-    message: 
-        "Create index for bam.\n"
-        "   inputs  : {input}\n"
-        "   outputs : {output}"
     input:
         "{filename}.bam"
     output:
@@ -121,24 +129,29 @@ rule index_bam:
 
 
 
+# ----------------------------------------------------
+# BQSR : Base Recalibration
+# ----------------------------------------------------
+
+
 # TODO : add 1000G, dbSNP, ...
 rule bam_RealignerTargetCreator:
     input:
-        "{sample}.sorted.bam",
-        "{sample}.sorted.bam.bai"
+        "{sample}.markDuplicate.bam",
+        "{sample}.markDuplicate.bam.bai"
     output:
         "{sample}.indel.intervals"
     threads:
         128
     shell:
-        "gatk -Xms20G -Xmx20G -T RealignerTargetCreator -R -nt {threads} {config[ref]} -I {input[0]} -o {output}"
+        "gatk -Xms{config[ram]}G -Xmx{config[ram]}G -T RealignerTargetCreator -nt {threads} -R {config[ref]} -I {input[0]} -o {output}"
 
 
 # TODO : add 1000G, dbSNP, ...
 rule bam_IndelRealigner:
     input:
-        bam = "{sample}.sorted.bam",
-        bai = "{sample}.sorted.bam.bai",
+        bam = "{sample}.markDuplicate.bam",
+        bai = "{sample}.markDuplicate.bam.bai",
         itv = "{sample}.indel.intervals"
     output:
         "{sample}.realigned.bam"
@@ -154,7 +167,7 @@ rule bam_BaseRecalibrator:
     threads:
         128
     shell:
-        "gatk -Xms20G -Xmx20G -T BaseRecalibrator -R {config[ref]} -nct {threads} -knownSites {config[dbsnp]} -I {input} -o {output}"
+        "gatk -Xms{config[ram]}G -Xmx{config[ram]}G -T BaseRecalibrator -R {config[ref]} -nct {threads} -knownSites {config[dbsnp]} -I {input} -o {output}"
 
 
 
@@ -163,16 +176,15 @@ rule bam_PrintRead:
         bam = "{filename}.bam",
         tbl = "{filename}.table"
     output:
-        "{filename}.recal.bam"
+        "{filename}.BQSR.bam"
     threads:
         128
     shell:
-        "gatk -Xms20G -Xmx20G -T PrintReads -R {config[ref]} -nct {threads} -I {input.bam} --BQSR {input.tbl} -o {output}"
+        "gatk -Xms{config[ram]}G -Xmx{config[ram]}G -T PrintReads -R {config[ref]} -nct {threads} -I {input.bam} --BQSR {input.tbl} -o {output}"
 
 
 
 # TODO :
-#  - Mark duplicate
 #  - second pass to analyze covariation remaining after recalibration
 #  - Generating before/after recalibration plot : https://software.broadinstitute.org/gatk/documentation/article?id=2801
 
@@ -204,40 +216,67 @@ rule fasta_dict_creation:
 # ----------------------------------------------------
 
 
-rule variant_calling_mpileup:
+rule variant_calling_samtools:
     input:
-        bam = "{sample}.sorted.bam",
-        bai = "{sample}.sorted.bam.bai"
+        bam = "{sample}.realigned.BQSR.bam",
+        bai = "{sample}.realigned.BQSR.bam.bai"
     output:
-        "{sample}.mpileup.vcf"
+        "{sample}.samtools.calling.vcf"
     log:
-        "{sample}.mpileup.vcf.log"
+        "{sample}.samtools.calling.vcf.log"
     shell:
         "samtools mpileup -ugf {config[ref]} {input.bam} | bcftools call -vm -O v -o {output}  2> {log}"
 
 
 rule variant_calling_HC:
     input:
-        bam = "{sample}.realigned.recal.bam",
-        bai = "{sample}.realigned.recal.bam.bai"
+        bam = "{sample}.realigned.BQSR.bam",
+        bai = "{sample}.realigned.BQSR.bam.bai"
     output:
-        "{sample}.hc.vcf"
+        "{sample}.hc.calling.vcf"
     log:
-        "{sample}.hc.vcf.log"
+        "{sample}.hc.calling.vcf.log"
     threads:
         128
     shell:
-        "gatk -Xms20G -Xmx20G -T HaplotypeCaller -R {config[ref]} -nct {threads} -I {input.bam} -o {output} -ERC GVCF --variant_index_type LINEAR --variant_index_parameter 128000  "
+        "gatk -Xms{config[ram]}G -Xmx{config[ram]}G -T HaplotypeCaller -R {config[ref]} -nct {threads} -I {input.bam} -o {output} \
+            --emitRefConfidence GVCF --variant_index_type LINEAR \
+            --variant_index_parameter 128000 \
+            --dbsnp:vcfinput,VCF {config[dbsnp]} "
+
+# TODO : UnifiedGenotyper variant calling
+# TODO : Platipus variant calling
 
 
 
-# rule vcf_index:
-#     input:
-#         "{sample}.vcf.gz"
-#     output:
-#         "{sample}.vcf.gz.tbi"
-#     shell:
-#         "tabix -p vcf {input}"
+# ----------------------------------------------------
+# VCF Merging/joining
+# ----------------------------------------------------
+# Mergin each sample's gvcf into one gvcf
+rule variant_CombineGVCFs:
+    # All (and only) gvcf produced by HC can be used by this tool
+    input:
+        expand("{sample}.hc.calling.vcf", sample=config['samples'])
+    output:
+        "all.hc.combine.vcf"
+    params:
+        input_files = " ".join(["--variant {}".format(vcf) for vcf in os.listdir(".") if vcf.endswith(".hc.calling.vcf")])
+    shell:
+        "gatk -Xms{config[ram]}G -Xmx{config[ram]}G -T CombineGVCFs -R {config[ref]} {params.input_files} -o {output}"
+
+
+# Performs the multi-sample joint aggregation 
+# will combine all spanning records, produce correct genotype likelihoods, re-genotype the newly merged record
+# Need gvcf produced by HC with '-ERC GVCF' mode
+rule variant_GenotypeGVCFs:
+    input:
+        "all.hc.combine.vcf"
+    output:
+        "all.vcf"
+    threads:
+        128
+    shell:
+        "gatk -Xms{config[ram]}G -Xmx{config[ram]}G -T GenotypeGVCFs -R {config[ref]} -nt {threads} --variant {input} -o {output}"
 
 
 
@@ -245,6 +284,100 @@ rule variant_calling_HC:
 
 
 
+
+# ----------------------------------------------------
+# VQSR : Variants Recalibration
+# ----------------------------------------------------
+
+
+rule build_snp_recalibration:
+    input:
+        "all.vcf"
+    output:
+        recal  = "all.snp.recal",
+        tranch = "all.snp.tranches"
+    threads:
+        128
+    shell:
+        "gatk -Xms{config[ram]}G -Xmx{config[ram]}G -T VariantRecalibrator -mode SNP  \
+            -R {config[ref]} -nt {threads} -input {input} \
+            -resource:hapmap,known=false,training=true,truth=true,prior=15.0 {config[hapmap]} \
+            -resource:omni,known=false,training=true,truth=true,prior=12.0 {config[omni]} \
+            -resource:1000G,known=false,training=true,truth=false,prior=10.0 {config[_1000g]} \
+            -resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {config[dbsnp]} \
+            -an QD -an MQ -an MQRankSum -an ReadPosRankSum -an FS -an SOR -an InbreedingCoeff \
+            -recalFile {output.recal} \
+            -tranchesFile {output.tranch} -rscriptFile output.plots.R"
+        # 
+        # 
+        # -resource:1000G,known=false,training=true,truth=false,prior=10.0 ${OTG} \
+
+
+rule apply_snp_recalibration:
+    input:
+        vcf   = "all.vcf",
+        recal = "all.snp.recal",
+        trch  = "all.snp.tranches"
+    output:
+        "all.snp.recal.vcf"
+    threads:
+        128
+    shell:
+        "gatk -Xms{config[ram]}G -Xmx{config[ram]}G -T ApplyRecalibration -mode SNP \
+            -R {config[ref]} -nct {threads} -input {input.vcf} \
+            --ts_filter_level 99.5 \
+            -recalFile {input.recal} \
+            -tranchesFile {input.trch} \
+            -o {output}"
+
+
+
+rule build_indels_recalibration:
+    input:
+        "all.vcf"
+    output:
+        recal  = "all.indels.recal",
+        tranch = "all.indels.tranches"
+    threads:
+        128
+    shell:
+        "gatk -Xms{config[ram]}G -Xmx{config[ram]}G -T VariantRecalibrator -mode INDEL \
+            -R {config[ref]} -nct {threads} -input {input} \
+            -resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {config[dbsnp]} \
+            -resource:mills,known=false,training=true,truth=true,prior=12.0 {config[mills]} \
+            -an FS -an MQ -an MQRankSum -an QD -an ReadPosRankSum --maxGaussians 4\
+            -recalFile {output.recal} \
+            -tranchesFile {output.tranch}"
+
+
+rule apply_indels_recalibration:
+    input:
+        vcf   = "all.snp.recal.vcf",
+        recal = "all.indels.recal",
+        trch  = "all.indels.tranches"
+    output:
+        "all.VQSR.vcf"
+    threads:
+        128
+    shell:
+        "gatk -Xms{config[ram]}G -Xmx{config[ram]}G -T ApplyRecalibration -mode INDEL  \
+            -R {config[ref]} -nct {threads} -input {input.vcf} \
+            --ts_filter_level 99.0 \
+            -recalFile {input.recal} \
+            -tranchesFile {input.trch} \
+            -o {output}"
+
+
+
+rule filter_vqsr:
+    input:
+        vcf   = "all.VQSR.vcf"
+    output:
+        "all.final.vcf"
+    threads:
+        128
+    shell:
+        "gatk -Xms{config[ram]}G -Xmx{config[ram]}G -T SelectVariants -env -R {config[ref]} -nct {threads} -V {input.vcf} -o {output}"
 
 
 # ----------------------------------------------------
@@ -260,4 +393,9 @@ rule annotation_snpeff:
     log:
         "{sample}.snpeff.log"
     shell:
-        "snpEff -Xmx8g -v {config[snpEff_ref]} {input} > {output} "
+        "snpEff -Xmx{config[ram]}g -v {config[snpEff_ref]} {input} > {output} "
+
+
+
+
+
